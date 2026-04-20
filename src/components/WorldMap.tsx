@@ -10,6 +10,7 @@ import { useWorld, type Agent, type Lab } from "@/lib/store";
 import { AGENT_PROFILES, LAB_BLUEPRINTS } from "@/lib/agents";
 import { WORLD_TIERS, type WorldSize } from "@/lib/worlds";
 import { buildGrid, findPath } from "@/lib/pathfinding";
+import KenneyBuilding, { BUILDINGS } from "@/components/KenneyBuilding";
 
 const ACCENT = "#5ee3d7";
 const SIGNAL = "#c4a6ff";
@@ -296,40 +297,53 @@ interface LabMeshProps {
   onSelect: () => void;
 }
 
+// Per-kind curated building selections from Kenney's city-kit-industrial.
+// The main structure + a varied supporting cast per lab type.
+const LAB_BUILDING_PRESETS: Record<
+  "core" | "coding-lab" | "research-lab" | "design-lab",
+  { main: (typeof BUILDINGS)[number]; ring: Array<(typeof BUILDINGS)[number]> }
+> = {
+  core: {
+    main: "building-l",
+    ring: ["building-a", "building-c", "building-f", "building-h", "building-n", "building-p"],
+  },
+  "coding-lab": {
+    main: "building-m",
+    ring: ["building-b", "building-d", "building-g", "building-i", "building-k"],
+  },
+  "research-lab": {
+    main: "building-o",
+    ring: ["building-e", "building-j", "building-q", "building-r", "building-s"],
+  },
+  "design-lab": {
+    main: "building-t",
+    ring: ["building-a", "building-f", "building-h", "building-n", "building-p"],
+  },
+};
+
 function LabCluster({ lab, selected, onSelect }: LabMeshProps) {
   const bp = LAB_BLUEPRINTS[lab.kind];
   const palette = PALETTES[bp.accent];
   const progress = lab.constructionProgress;
   const built = !lab.underConstruction;
 
-  // Deterministic building layout seeded by lab id length + kind
-  const buildings = useMemo(() => {
+  const preset = LAB_BUILDING_PRESETS[lab.kind];
+
+  // Deterministic layout seeded by lab id
+  const layout = useMemo(() => {
     const seed = lab.id.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
-    const items: Array<{
-      dx: number;
-      dz: number;
-      w: number;
-      d: number;
-      h: number;
-      accent: boolean;
-      roof: "flat" | "step" | "spire";
-    }> = [];
-    // Central big structure
-    items.push({ dx: 0, dz: 0, w: 1.3, d: 1.3, h: 1.3, accent: true, roof: "spire" });
-    // Surrounding structures
-    const ring = lab.kind === "core" ? 7 : 5;
-    for (let i = 0; i < ring; i++) {
-      const a = (i / ring) * Math.PI * 2 + (seed % 17) * 0.1;
-      const r = 1.45 + ((seed + i) % 5) * 0.1;
+    const ring = preset.ring;
+    const count = ring.length;
+    return ring.map((buildingKey, i) => {
+      const a = (i / count) * Math.PI * 2 + (seed % 17) * 0.1;
+      const r = 1.55 + ((seed + i) % 5) * 0.08;
       const dx = Math.cos(a) * r;
       const dz = Math.sin(a) * r;
-      const w = 0.55 + ((seed + i * 7) % 7) * 0.06;
-      const d = 0.55 + ((seed + i * 11) % 7) * 0.06;
-      const h = 0.45 + ((seed + i * 13) % 9) * 0.09;
-      items.push({ dx, dz, w, d, h, accent: i % 3 === 0, roof: i % 4 === 0 ? "step" : "flat" });
-    }
-    return items;
-  }, [lab.id, lab.kind]);
+      const rot = ((seed + i * 7) % 4) * (Math.PI / 2);
+      const scl = 0.5 + (((seed + i * 13) % 5) / 10);
+      return { buildingKey, dx, dz, rot, scl };
+    });
+  }, [lab.id, preset]);
 
   return (
     <group
@@ -341,83 +355,68 @@ function LabCluster({ lab, selected, onSelect }: LabMeshProps) {
     >
       {/* Base plaza */}
       <mesh position={[0, 0.14, 0]} receiveShadow>
-        <boxGeometry args={[3.8, 0.08, 3.8]} />
-        <meshStandardMaterial color="#0f1522" roughness={0.9} />
+        <boxGeometry args={[4.2, 0.08, 4.2]} />
+        <meshStandardMaterial color="#141a28" roughness={0.9} />
       </mesh>
       {/* Plaza edge glow */}
       <mesh position={[0, 0.19, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[1.78, 1.92, 4]} />
+        <ringGeometry args={[1.95, 2.1, 4]} />
         <meshBasicMaterial
           color={palette.accent}
           transparent
-          opacity={selected ? 0.9 : 0.45}
+          opacity={selected ? 0.95 : 0.5}
           side={THREE.DoubleSide}
         />
       </mesh>
 
-      {/* Buildings (scale with construction progress) */}
-      <group scale={[1, Math.max(0.05, progress), 1]}>
-        {buildings.map((b, i) => (
-          <group key={i} position={[b.dx, 0, b.dz]}>
-            <mesh position={[0, b.h / 2 + 0.18, 0]} castShadow receiveShadow>
-              <boxGeometry args={[b.w, b.h, b.d]} />
+      {/* Kenney-powered building cluster (scales with construction progress) */}
+      <group scale={[1, Math.max(0.05, progress), 1]} position={[0, 0.18, 0]}>
+        {/* Central main structure */}
+        <KenneyBuilding
+          model={preset.main}
+          position={[0, 0, 0]}
+          scale={0.75}
+          tint={palette.accent}
+        />
+        {/* Supporting ring */}
+        {layout.map((b, i) => (
+          <KenneyBuilding
+            key={i}
+            model={b.buildingKey}
+            position={[b.dx, 0, b.dz]}
+            rotation={b.rot}
+            scale={b.scl}
+            tint={i % 3 === 0 ? palette.accent : undefined}
+          />
+        ))}
+        {/* Accent pylon visible regardless of lab type */}
+        {built && (
+          <>
+            <mesh position={[0, 2.2, 0]} castShadow>
+              <boxGeometry args={[0.22, 1.2, 0.22]} />
               <meshStandardMaterial
-                color={b.accent ? palette.bodyMid : palette.body}
-                roughness={0.55}
-                metalness={0.42}
+                color="#0b0f1c"
+                roughness={0.45}
+                metalness={0.6}
                 emissive={palette.accent}
-                emissiveIntensity={b.accent ? 0.22 : 0.08}
-                flatShading
+                emissiveIntensity={0.55}
               />
             </mesh>
-            {/* Roof variants */}
-            {built && b.roof === "step" && (
-              <mesh position={[0, b.h + 0.28, 0]} castShadow>
-                <boxGeometry args={[b.w * 0.7, 0.18, b.d * 0.7]} />
-                <meshStandardMaterial color={palette.bodyMid} />
-              </mesh>
-            )}
-            {built && b.roof === "spire" && (
-              <>
-                <mesh position={[0, b.h + 0.55, 0]} castShadow>
-                  <boxGeometry args={[b.w * 0.35, 0.7, b.d * 0.35]} />
-                  <meshStandardMaterial
-                    color="#0b0f1c"
-                    roughness={0.45}
-                    metalness={0.55}
-                    emissive={palette.accent}
-                    emissiveIntensity={0.6}
-                  />
-                </mesh>
-                <mesh position={[0, b.h + 1.0, 0]} rotation={[Math.PI / 2, 0, 0]}>
-                  <torusGeometry args={[0.35, 0.025, 6, 32]} />
-                  <meshBasicMaterial color={palette.accent} toneMapped={false} />
-                </mesh>
-                <mesh position={[0, b.h + 1.0, 0]}>
-                  <sphereGeometry args={[0.06, 12, 12]} />
-                  <meshStandardMaterial
-                    color={palette.accent}
-                    emissive={palette.accent}
-                    emissiveIntensity={2.5}
-                    toneMapped={false}
-                  />
-                </mesh>
-              </>
-            )}
-            {/* Edge light stripe */}
-            {built && (
-              <mesh position={[0, b.h / 2 + 0.18, b.d / 2 + 0.005]}>
-                <boxGeometry args={[b.w * 0.72, 0.06, 0.02]} />
-                <meshBasicMaterial
-                  color={palette.accent}
-                  transparent
-                  opacity={0.88}
-                  toneMapped={false}
-                />
-              </mesh>
-            )}
-          </group>
-        ))}
+            <mesh position={[0, 2.85, 0]} rotation={[Math.PI / 2, 0, 0]}>
+              <torusGeometry args={[0.28, 0.025, 6, 32]} />
+              <meshBasicMaterial color={palette.accent} toneMapped={false} />
+            </mesh>
+            <mesh position={[0, 2.9, 0]}>
+              <sphereGeometry args={[0.08, 12, 12]} />
+              <meshStandardMaterial
+                color={palette.accent}
+                emissive={palette.accent}
+                emissiveIntensity={2.8}
+                toneMapped={false}
+              />
+            </mesh>
+          </>
+        )}
       </group>
 
       {/* Construction scaffolding while building */}

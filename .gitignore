@@ -41,6 +41,11 @@ yarn-error.log*
 /.tmp/
 *.deploy.sh
 
+# Kenney source dirs (we only ship the flattened GLBs in public/models/buildings)
+/public/models/kenney_city/
+/public/models/kenney_chars/
+/public/models/*.zip
+
 # playwright artifacts from dev testing
 /.playwright-mcp/
 aimpires-*.png
