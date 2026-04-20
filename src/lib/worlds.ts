@@ -40,7 +40,7 @@ export const WORLD_TIERS: Record<WorldSize, WorldTier> = {
     capacityTotal: 6,
     concurrentJobLimit: 3,
     maxLabsSuggested: 2,
-    mapTiles: 28,
+    mapTiles: 280,
     vps: { cpu: "1-2 vCPU", ram: "2-4 GB", storage: "40-60 GB" },
     priceHint: "starter",
     tagline:
@@ -54,7 +54,7 @@ export const WORLD_TIERS: Record<WorldSize, WorldTier> = {
     capacityTotal: 10,
     concurrentJobLimit: 5,
     maxLabsSuggested: 3,
-    mapTiles: 64,
+    mapTiles: 600,
     vps: { cpu: "2-4 vCPU", ram: "6-8 GB", storage: "80-120 GB" },
     priceHint: "recommended",
     tagline:

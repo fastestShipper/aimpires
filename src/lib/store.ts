@@ -74,6 +74,8 @@ export interface WorldState {
   setSelectedLab: (id: string | null) => void;
   moveAgent: (id: string, target: [number, number]) => void;
   setAgentPath: (id: string, path: Array<[number, number]>) => void;
+  deployLab: (kind: LabKind, position: [number, number]) => string | null;
+  spawnAgent: (kind: AgentKind, labId?: string) => string | null;
   tick: () => void;
   init: (args: {
     id: string;
@@ -84,7 +86,25 @@ export interface WorldState {
   log: (msg: string, kind?: "info" | "good" | "warn", sourceId?: string) => void;
 }
 
-export const useWorld = create<WorldState>((set) => ({
+const AGENT_ROLES: Record<AgentKind, { title: string; namePrefix: string }> = {
+  vladmir: { title: "Builder", namePrefix: "Vladmir" },
+  coder: { title: "Coder", namePrefix: "coder" },
+  researcher: { title: "Researcher", namePrefix: "research" },
+  designer: { title: "Designer", namePrefix: "designer" },
+};
+
+function labNameFor(kind: LabKind, existingCount: number): string {
+  const base: Record<LabKind, string> = {
+    core: "core",
+    "coding-lab": "coding.city",
+    "research-lab": "research.city",
+    "design-lab": "design.city",
+  };
+  const suffix = existingCount > 0 ? `.${(existingCount + 1).toString().padStart(2, "0")}` : "";
+  return `${base[kind]}${suffix}`;
+}
+
+export const useWorld = create<WorldState>((set, get) => ({
   id: "",
   name: "",
   size: "medium",
@@ -120,6 +140,82 @@ export const useWorld = create<WorldState>((set) => ({
           : a,
       ),
     })),
+
+  deployLab: (kind, position) => {
+    const labName = labNameFor(kind, get().labs.length);
+    const id = `${kind}-${Date.now().toString(36)}`;
+    const lab: Lab = {
+      id,
+      kind,
+      name: labName,
+      position,
+      level: 1,
+      underConstruction: true,
+      constructionProgress: 0,
+      assignedAgentIds: [],
+    };
+    set((s) => ({
+      labs: [...s.labs, lab],
+      events: [
+        {
+          t: Date.now(),
+          msg: `Vladmir broke ground on ${labName} at (${Math.round(position[0])}, ${Math.round(position[1])}).`,
+          kind: "good" as const,
+        } satisfies WorldEvent,
+        ...s.events,
+      ].slice(0, 60),
+    }));
+    return id;
+  },
+
+  spawnAgent: (kind, labId) => {
+    const state = get();
+    const profile = AGENT_ROLES[kind];
+    const count = state.agents.filter((a) => a.kind === kind).length + 1;
+    const id = `${kind}-${Date.now().toString(36)}`;
+    const name = `${profile.namePrefix}-${count.toString().padStart(2, "0")}`;
+    // Spawn near the lab if one is assigned, else near Vladmir / origin.
+    let spawnPos: [number, number] = [2, 2];
+    if (labId) {
+      const lab = state.labs.find((l) => l.id === labId);
+      if (lab) spawnPos = [lab.position[0] + 1, lab.position[1] + 1];
+    } else {
+      const vlad = state.agents.find((a) => a.kind === "vladmir");
+      if (vlad) spawnPos = [vlad.position[0] + 1, vlad.position[1] + 1];
+    }
+    const agent: Agent = {
+      id,
+      kind,
+      name,
+      level: 1,
+      xp: 0,
+      status: "idle",
+      mode: "manual",
+      position: spawnPos,
+      target: null,
+      path: [],
+      homeLabId: labId ?? null,
+      currentTask: null,
+      artifacts: 0,
+    };
+    set((s) => ({
+      agents: [...s.agents, agent],
+      labs: labId
+        ? s.labs.map((l) =>
+            l.id === labId ? { ...l, assignedAgentIds: [...l.assignedAgentIds, id] } : l,
+          )
+        : s.labs,
+      events: [
+        {
+          t: Date.now(),
+          msg: `${name} came online as ${profile.title}${labId ? ` at ${state.labs.find((l) => l.id === labId)?.name ?? labId}` : ""}.`,
+          kind: "good" as const,
+        } satisfies WorldEvent,
+        ...s.events,
+      ].slice(0, 60),
+    }));
+    return id;
+  },
 
   log: (msg, kind = "info", sourceId) =>
     set((s) => ({

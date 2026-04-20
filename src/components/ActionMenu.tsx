@@ -157,6 +157,7 @@ export default function ActionMenu({
                   worldName={worldName}
                   canBuild={canBuildLab}
                   free={capacity.free}
+                  onDone={() => setOpen(false)}
                 />
               )}
               {tab === "spawn" && (
@@ -165,6 +166,7 @@ export default function ActionMenu({
                   worldName={worldName}
                   canSpawn={canSpawnAgent}
                   free={capacity.free}
+                  onDone={() => setOpen(false)}
                 />
               )}
               {tab === "assign" && (
@@ -185,32 +187,61 @@ function BuildLabPanel({
   worldName,
   canBuild,
   free,
+  onDone,
 }: {
   worldId: string;
   worldName: string;
   canBuild: boolean;
   free: number;
+  onDone: () => void;
 }) {
   const log = useWorld((s) => s.log);
   const labs = useWorld((s) => s.labs);
   const agents = useWorld((s) => s.agents);
+  const deployLab = useWorld((s) => s.deployLab);
+  const spawnAgent = useWorld((s) => s.spawnAgent);
   const [busy, setBusy] = useState<LabKind | null>(null);
 
   async function buildLab(kind: LabKind) {
     if (!canBuild || busy) return;
     setBusy(kind);
     const bp = LAB_BLUEPRINTS[kind];
-    // Place adjacent to Vladmir with some offset; later A* will smooth it
-    const vlad = agents.find((a) => a.kind === "vladmir");
-    const offsetX = ((labs.length % 3) - 1) * 3 + 2;
-    const offsetZ = Math.floor(labs.length / 3) * 3 - 1;
-    const position: [number, number] = vlad
-      ? [Math.round(vlad.position[0]) + offsetX, Math.round(vlad.position[1]) + offsetZ]
-      : [offsetX, offsetZ];
 
-    // Ask Vladmir for a directive (runs real LLM via /api/agents/task)
+    // Pick an empty tile away from existing labs.
+    const taken = new Set(labs.map((l) => `${Math.round(l.position[0])}|${Math.round(l.position[1])}`));
+    let placed: [number, number] = [4, 4];
+    for (let r = 4; r < 18 && !placed; r++) {
+      for (let a = 0; a < 360; a += 30) {
+        const x = Math.round(Math.cos((a * Math.PI) / 180) * r);
+        const z = Math.round(Math.sin((a * Math.PI) / 180) * r);
+        if (!taken.has(`${x}|${z}`)) {
+          placed = [x, z];
+          break;
+        }
+      }
+    }
+    // Randomize among ring for variety
+    const angle = (labs.length * 47) % 360;
+    const ring = 5 + labs.length * 2;
+    placed = [
+      Math.round(Math.cos((angle * Math.PI) / 180) * ring),
+      Math.round(Math.sin((angle * Math.PI) / 180) * ring),
+    ];
+
+    const labId = deployLab(kind, placed);
+
+    // Auto-spawn the suggested agent composition inside the new lab.
+    if (labId) {
+      for (const agentKind of bp.suggestedAgents) {
+        if (agentKind === "vladmir") continue;
+        spawnAgent(agentKind, labId);
+      }
+    }
+
+    // Ask Vladmir for a directive in the background.
     try {
-      const res = await fetch("/api/agents/task", {
+      const vlad = agents.find((a) => a.kind === "vladmir");
+      fetch("/api/agents/task", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -219,26 +250,20 @@ function BuildLabPanel({
           agentId: vlad?.id ?? "vladmir-0",
           agentName: vlad?.name ?? "Vladmir",
           agentKind: "vladmir",
-          task: `Produce a deployment directive for a new ${bp.name}. Composition: ${bp.suggestedAgents.join(", ")}. Workspace: /root/claude/worlds/${worldId}/labs/${bp.kind}/. First job: spin up and write a README.md.`,
+          task: `Produce a deployment directive for the new ${bp.name} at position (${placed[0]}, ${placed[1]}). Composition: ${bp.suggestedAgents.join(", ")}. First job: spin up and write a README.md.`,
         }),
-      });
-      const json = await res.json();
-      if (json.success) {
-        log(`Vladmir drafted ${bp.name} directive: ${json.data.filename}`, "good");
-      } else {
-        log(`Directive failed: ${json.error ?? "unknown"}`, "warn");
-      }
-    } catch (e) {
-      log(`Directive request failed: ${e instanceof Error ? e.message : "?"}`, "warn");
-    } finally {
-      // We don't mutate store labs directly here — that's the next feature
-      // (store integration for lab placement). For now we log and surface.
-      log(
-        `Placement proposed at (${position[0]}, ${position[1]}). Store integration pending.`,
-        "info",
-      );
-      setBusy(null);
-    }
+      })
+        .then((r) => r.json())
+        .then((json) => {
+          if (json?.success) {
+            log(`Vladmir filed ${bp.name} directive: ${json.data.filename}`, "info");
+          }
+        })
+        .catch(() => {});
+    } catch {}
+
+    setBusy(null);
+    onDone();
   }
 
   return (
@@ -297,23 +322,42 @@ function SpawnAgentPanel({
   worldName,
   canSpawn,
   free,
+  onDone,
 }: {
   worldId: string;
   worldName: string;
   canSpawn: boolean;
   free: number;
+  onDone: () => void;
 }) {
   const log = useWorld((s) => s.log);
   const agents = useWorld((s) => s.agents);
+  const labs = useWorld((s) => s.labs);
+  const spawnAgent = useWorld((s) => s.spawnAgent);
   const [busy, setBusy] = useState<AgentKind | null>(null);
 
   async function spawn(kind: AgentKind) {
     if (!canSpawn || busy) return;
     setBusy(kind);
-    const vlad = agents.find((a) => a.kind === "vladmir");
     const profile = AGENT_PROFILES[kind];
+
+    // Pick a lab matching role affinity, else any non-core lab, else core.
+    const preferred: Record<AgentKind, string | undefined> = {
+      vladmir: "core",
+      coder: "coding-lab",
+      researcher: "research-lab",
+      designer: "design-lab",
+    };
+    const target =
+      labs.find((l) => l.kind === preferred[kind]) ??
+      labs.find((l) => l.kind !== "core") ??
+      labs[0];
+    const id = spawnAgent(kind, target?.id);
+
+    // Background: Vladmir writes dossier
     try {
-      const res = await fetch("/api/agents/task", {
+      const vlad = agents.find((a) => a.kind === "vladmir");
+      fetch("/api/agents/task", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -322,24 +366,20 @@ function SpawnAgentPanel({
           agentId: vlad?.id ?? "vladmir-0",
           agentName: vlad?.name ?? "Vladmir",
           agentKind: "vladmir",
-          task: `Produce the onboarding dossier for a new ${profile.title} citizen. Include their role, first 3 default tasks, assigned lab, and a short welcome note.`,
+          task: `Produce the onboarding dossier for a new ${profile.title} citizen (${id}), assigned to ${target?.name ?? "core"}. Include role, 3 default tasks, and a short welcome note.`,
         }),
-      });
-      const json = await res.json();
-      if (json.success) {
-        log(`Vladmir drafted ${profile.title} dossier: ${json.data.filename}`, "good");
-      } else {
-        log(`Spawn dossier failed: ${json.error ?? "unknown"}`, "warn");
-      }
-    } catch (e) {
-      log(`Spawn failed: ${e instanceof Error ? e.message : "?"}`, "warn");
-    } finally {
-      log(
-        `Spawn proposed for ${profile.title}. Store integration pending.`,
-        "info",
-      );
-      setBusy(null);
-    }
+      })
+        .then((r) => r.json())
+        .then((json) => {
+          if (json?.success) {
+            log(`Dossier filed: ${json.data.filename}`, "info");
+          }
+        })
+        .catch(() => {});
+    } catch {}
+
+    setBusy(null);
+    onDone();
   }
 
   return (
