@@ -10,9 +10,9 @@ interface Props {
 export default async function WorldPage({ params, searchParams }: Props) {
   const { id } = await params;
   const sp = await searchParams;
-  const sizeCandidate = (sp.size ?? "city") as WorldSize;
-  const size: WorldSize = TIER_ORDER.includes(sizeCandidate) ? sizeCandidate : "city";
-  const name = sp.name?.trim() || "New Realm";
+  const sizeCandidate = (sp.size ?? "medium") as WorldSize;
+  const size: WorldSize = TIER_ORDER.includes(sizeCandidate) ? sizeCandidate : "medium";
+  const name = sp.name?.trim() || "new.world";
 
   return (
     <main className="fixed inset-0 overflow-hidden">

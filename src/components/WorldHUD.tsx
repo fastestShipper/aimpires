@@ -6,6 +6,7 @@ import { useWorld } from "@/lib/store";
 import { WORLD_TIERS, computeCapacity, type WorldSize } from "@/lib/worlds";
 import { AGENT_PROFILES, LAB_BLUEPRINTS } from "@/lib/agents";
 import TaskPanel from "@/components/TaskPanel";
+import ActionMenu from "@/components/ActionMenu";
 
 interface HUDProps {
   worldId: string;
@@ -50,6 +51,8 @@ export default function WorldHUD({ worldId, worldName, size }: HUDProps) {
 
   return (
     <>
+      <ActionMenu worldId={worldId} worldName={worldName} size={size} />
+
       {/* Top bar */}
       <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-6 py-3.5 bg-gradient-to-b from-[var(--bg)]/95 via-[var(--bg)]/60 to-transparent backdrop-blur-sm">
         <div className="flex items-center gap-6">

@@ -37,6 +37,10 @@ yarn-error.log*
 # generated agent artifacts (per-world filesystem storage)
 /worlds_data/
 
+# deploy scripts with credentials — never commit
+/.tmp/
+*.deploy.sh
+
 # playwright artifacts from dev testing
 /.playwright-mcp/
 aimpires-*.png
