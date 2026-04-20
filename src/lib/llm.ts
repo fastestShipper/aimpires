@@ -54,21 +54,21 @@ function simulateOutput(
   task: string,
   ctx: { worldName: string; agentName: string },
 ): string {
-  const header = `# ${profile.artifactLabel} · ${profile.title}\n\n*Produced by ${ctx.agentName} in the realm of ${ctx.worldName}.*\n\n---\n\n## Task\n\n> ${task}\n\n---\n\n`;
+  const header = `# ${profile.artifactLabel} · ${profile.title}\n\n*Produced by ${ctx.agentName} in world ${ctx.worldName}.*\n\n---\n\n## Task\n\n> ${task}\n\n---\n\n`;
 
   if (profile.kind === "coder") {
-    return `// ${task}\n// Simulated output. Set ANTHROPIC_API_KEY in .env.local for real code.\n\nfunction run() {\n  console.log("Hello from a simulated Coder citizen. Task: ${task.replace(/"/g, "'")}");\n}\n\nrun();\n`;
+    return `// ${task}\n// Simulated output. Set ANTHROPIC_API_KEY in .env.local for real code.\n\nfunction run() {\n  console.log("Hello from a simulated Coder agent. Task: ${task.replace(/"/g, "'")}");\n}\n\nrun();\n`;
   }
 
-  if (profile.kind === "builder") {
+  if (profile.kind === "vladmir") {
     return (
       header +
-      `## Blueprint — ${task}\n\n**Materials:** oak timber, quarried stone, forge-iron fittings.\n**Crew:** 3 masons, 2 carpenters, 1 smith.\n**Duration:** 6 days.\n\nRises in three courses. A banner of gold cloth crowns the roof. Inside: a main hall floored in flagstone, a workshop to the north, and shelved alcoves to the east. When the last beam is pegged, a hot iron is pressed into the lintel — the realm's mark, passing from this Builder to the next.\n\n_Simulated output. Set ANTHROPIC_API_KEY in .env.local for a real Builder._\n`
+      `## Directive\n\n**Objective:** ${task}\n\n**Plan:**\n1. Reserve 2 capacity units for the new lab.\n2. Stand up the lab folder at \`/labs/new-lab/\` in the world workspace.\n3. Spawn 2 specialized agents per the lab blueprint.\n4. Seed a README with goals and the first job.\n\n**Status:** queued — awaiting player confirmation.\n\n_Simulated directive. Add ANTHROPIC_API_KEY to .env.local and Vladmir will reason in real time._\n`
     );
   }
 
   return (
     header +
-    `_This is a simulated ${profile.title} output. Add ANTHROPIC_API_KEY to .env.local and this citizen will produce real work._\n\n## Draft\n\nThe ${profile.title.toLowerCase()} of ${ctx.worldName} set to the task. The simulated result reads:\n\n${task}\n\n- A placeholder finding.\n- A placeholder observation.\n- A placeholder recommendation.\n\n_End of simulated artifact._\n`
+    `_This is a simulated ${profile.title} output. Add ANTHROPIC_API_KEY to .env.local and this agent will produce real work._\n\n## Draft\n\n- A placeholder finding.\n- A placeholder observation.\n- A placeholder recommendation.\n\n_End of simulated artifact._\n`
   );
 }

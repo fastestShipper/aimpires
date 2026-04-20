@@ -10,14 +10,7 @@ const bodySchema = z.object({
   worldName: z.string().min(1),
   agentId: z.string().min(1),
   agentName: z.string().min(1),
-  agentKind: z.enum([
-    "builder",
-    "coder",
-    "designer",
-    "researcher",
-    "trader",
-    "scribe",
-  ]),
+  agentKind: z.enum(["vladmir", "coder", "researcher", "designer"]),
   task: z.string().min(3).max(500),
 });
 

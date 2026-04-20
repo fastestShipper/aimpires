@@ -3,7 +3,8 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useWorld } from "@/lib/store";
-import { WORLD_TIERS, type WorldSize } from "@/lib/worlds";
+import { WORLD_TIERS, computeCapacity, type WorldSize } from "@/lib/worlds";
+import { AGENT_PROFILES, LAB_BLUEPRINTS } from "@/lib/agents";
 import TaskPanel from "@/components/TaskPanel";
 
 interface HUDProps {
@@ -17,15 +18,15 @@ export default function WorldHUD({ worldId, worldName, size }: HUDProps) {
   const init = useWorld((s) => s.init);
   const name = useWorld((s) => s.name);
   const agents = useWorld((s) => s.agents);
-  const cities = useWorld((s) => s.cities);
-  const gold = useWorld((s) => s.gold);
-  const reputation = useWorld((s) => s.reputation);
+  const labs = useWorld((s) => s.labs);
   const age = useWorld((s) => s.age);
+  const targetVps = useWorld((s) => s.targetVps);
+  const workspaceRoot = useWorld((s) => s.workspaceRoot);
   const selectedAgentId = useWorld((s) => s.selectedAgentId);
-  const selectedCityId = useWorld((s) => s.selectedCityId);
+  const selectedLabId = useWorld((s) => s.selectedLabId);
   const setSelectedAgent = useWorld((s) => s.setSelectedAgent);
-  const setSelectedCity = useWorld((s) => s.setSelectedCity);
-  const logs = useWorld((s) => s.logs);
+  const setSelectedLab = useWorld((s) => s.setSelectedLab);
+  const events = useWorld((s) => s.events);
 
   useEffect(() => {
     if (name !== worldName) {
@@ -35,103 +36,140 @@ export default function WorldHUD({ worldId, worldName, size }: HUDProps) {
 
   const tier = WORLD_TIERS[size];
   const selectedAgent = agents.find((a) => a.id === selectedAgentId);
-  const selectedCity = cities.find((c) => c.id === selectedCityId);
+  const selectedLab = labs.find((l) => l.id === selectedLabId);
+
+  const builderCount = agents.filter((a) => a.kind === "vladmir").length;
+  const workerCount = agents.length - builderCount;
+  const labCount = labs.length;
+  const capacity = computeCapacity({
+    size,
+    builderCount,
+    agentCount: workerCount,
+    labCount,
+  });
 
   return (
     <>
       {/* Top bar */}
-      <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-6 py-4 bg-gradient-to-b from-[#08090c]/95 to-transparent backdrop-blur-sm">
+      <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-6 py-3.5 bg-gradient-to-b from-[var(--bg)]/95 via-[var(--bg)]/60 to-transparent backdrop-blur-sm">
         <div className="flex items-center gap-6">
           <button
             onClick={() => router.push("/")}
-            className="text-xs tracking-[0.2em] uppercase text-[var(--fg-muted)] hover:text-[var(--accent)] transition-colors"
+            className="text-[10px] tracking-[0.25em] uppercase text-[var(--fg-muted)] hover:text-[var(--accent)] transition-colors font-mono"
           >
-            ← Leave realm
+            ← exit world
           </button>
           <div className="flex items-center gap-3">
-            <div className="w-7 h-7 border border-[var(--accent)] rotate-45 flex items-center justify-center">
-              <span className="rotate-[-45deg] font-display text-[var(--accent)] text-xs">Æ</span>
+            <div className="w-7 h-7 border border-[var(--accent)] flex items-center justify-center relative">
+              <div className="w-1 h-1 bg-[var(--accent)] shadow-[0_0_8px_var(--accent)]" />
             </div>
             <div>
               <div className="font-display text-xl leading-none">{worldName}</div>
-              <div className="text-[9px] tracking-[0.25em] uppercase text-[var(--fg-dim)] mt-0.5">
-                {tier.name} · turn {age}
+              <div className="text-[9px] tracking-[0.25em] uppercase text-[var(--fg-dim)] mt-1 font-mono">
+                {tier.code} · tick {age.toString().padStart(4, "0")} · {targetVps}
               </div>
             </div>
           </div>
         </div>
 
         <div className="flex items-center gap-5 text-xs">
-          <Resource label="gold" value={gold} />
-          <Resource label="rep" value={reputation} />
-          <Resource label="citizens" value={`${agents.length}/${tier.maxAgents}`} />
-          <Resource label="labs" value={`${cities.length}/${tier.maxLabs}`} />
+          <CapacityWidget capacity={capacity} />
+          <Resource label="agents" value={`${agents.length}/${tier.capacityTotal}`} />
+          <Resource label="labs" value={`${labCount}`} />
+          <Resource label="jobs" value={`0/${tier.concurrentJobLimit}`} />
         </div>
       </div>
 
-      {/* Left panel — citizens */}
-      <div className="absolute top-20 left-4 z-10 w-64 bg-[var(--bg-elev)]/95 backdrop-blur border border-[var(--border)] p-4 max-h-[60vh] overflow-y-auto">
+      {/* Left panel — agents */}
+      <div className="absolute top-20 left-4 z-10 w-64 bg-[var(--bg-elev)]/95 backdrop-blur border border-[var(--border)] p-4 max-h-[62vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-3">
-          <div className="text-[10px] tracking-[0.3em] uppercase text-[var(--fg-dim)]">Citizens</div>
-          <span className="text-[10px] text-[var(--fg-muted)]">{agents.length}</span>
+          <div className="text-[10px] tracking-[0.3em] uppercase text-[var(--fg-dim)] font-mono">
+            agents
+          </div>
+          <span className="badge">{agents.length}</span>
         </div>
         <div className="space-y-1.5">
-          {agents.map((a) => (
-            <button
-              key={a.id}
-              onClick={() => setSelectedAgent(a.id)}
-              className={`w-full text-left p-2.5 border transition-colors ${
-                selectedAgentId === a.id
-                  ? "border-[var(--accent)] bg-[var(--accent)]/5"
-                  : "border-[var(--border)] hover:border-[var(--border-strong)]"
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="font-display text-base leading-tight">{a.name}</span>
-                <span className="text-[9px] tracking-[0.2em] uppercase text-[var(--fg-dim)]">
-                  Lv {a.level}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-[10px] tracking-[0.2em] uppercase text-[var(--accent)]">
-                  {a.kind}
-                </span>
-                <span className="text-[10px] text-[var(--fg-muted)]">· {a.status}</span>
-              </div>
-            </button>
-          ))}
+          {agents.map((a) => {
+            const profile = AGENT_PROFILES[a.kind];
+            return (
+              <button
+                key={a.id}
+                onClick={() => setSelectedAgent(a.id)}
+                className={`w-full text-left p-2.5 border transition-colors ${
+                  selectedAgentId === a.id
+                    ? "border-[var(--accent)] bg-[rgba(94,227,215,0.06)]"
+                    : "border-[var(--border)] hover:border-[var(--border-strong)]"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="w-5 h-5 border border-[var(--accent-dim)] flex items-center justify-center text-[var(--accent)] font-mono text-[10px]"
+                      aria-hidden
+                    >
+                      {profile.glyph}
+                    </span>
+                    <span className="font-display text-base leading-tight">{a.name}</span>
+                  </div>
+                  <span className="text-[9px] tracking-[0.2em] uppercase text-[var(--fg-dim)] font-mono">
+                    L{a.level}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 mt-1 ml-7">
+                  <span className="text-[10px] tracking-[0.2em] uppercase text-[var(--accent)] font-mono">
+                    {a.kind}
+                  </span>
+                  <span className="text-[10px] text-[var(--fg-muted)]">· {a.status}</span>
+                </div>
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {/* Right panel — labs */}
-      <div className="absolute top-20 right-4 z-10 w-64 bg-[var(--bg-elev)]/95 backdrop-blur border border-[var(--border)] p-4 max-h-[60vh] overflow-y-auto">
+      <div className="absolute top-20 right-4 z-10 w-64 bg-[var(--bg-elev)]/95 backdrop-blur border border-[var(--border)] p-4 max-h-[62vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-3">
-          <div className="text-[10px] tracking-[0.3em] uppercase text-[var(--fg-dim)]">Labs</div>
-          <span className="text-[10px] text-[var(--fg-muted)]">{cities.length}/{tier.maxLabs}</span>
+          <div className="text-[10px] tracking-[0.3em] uppercase text-[var(--fg-dim)] font-mono">
+            labs
+          </div>
+          <span className="badge">{labs.length}</span>
         </div>
         <div className="space-y-1.5">
-          {cities.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => setSelectedCity(c.id)}
-              className={`w-full text-left p-2.5 border transition-colors ${
-                selectedCityId === c.id
-                  ? "border-[var(--accent)] bg-[var(--accent)]/5"
-                  : "border-[var(--border)] hover:border-[var(--border-strong)]"
-              }`}
-            >
-              <div className="font-display text-base leading-tight">{c.name}</div>
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-[10px] tracking-[0.2em] uppercase text-[var(--accent)]">
-                  {c.kind.replace("-", " ")}
-                </span>
-                <span className="text-[10px] text-[var(--fg-muted)]">· Lv {c.level}</span>
-              </div>
-            </button>
-          ))}
-          {cities.length < tier.maxLabs && (
-            <div className="mt-3 p-3 border border-dashed border-[var(--border-strong)] text-xs text-[var(--fg-muted)] leading-relaxed">
-              Send the Builder to an empty tile to raise a new lab. (Coming next.)
+          {labs.map((l) => {
+            const bp = LAB_BLUEPRINTS[l.kind];
+            return (
+              <button
+                key={l.id}
+                onClick={() => setSelectedLab(l.id)}
+                className={`w-full text-left p-2.5 border transition-colors ${
+                  selectedLabId === l.id
+                    ? "border-[var(--accent)] bg-[rgba(94,227,215,0.06)]"
+                    : "border-[var(--border)] hover:border-[var(--border-strong)]"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="w-5 h-5 border border-[var(--accent-dim)] flex items-center justify-center text-[var(--accent)] font-mono text-[10px]"
+                      aria-hidden
+                    >
+                      {bp.glyph}
+                    </span>
+                    <span className="font-display text-base leading-tight">{l.name}</span>
+                  </div>
+                  <span className="text-[9px] text-[var(--fg-dim)] font-mono">L{l.level}</span>
+                </div>
+                <div className="ml-7 mt-1 text-[10px] text-[var(--fg-muted)] tracking-[0.1em] font-mono">
+                  {l.kind} · {l.assignedAgentIds.length} staff
+                </div>
+              </button>
+            );
+          })}
+          {capacity.free >= 2 && (
+            <div className="mt-3 p-3 border border-dashed border-[var(--border-strong)] text-[11px] text-[var(--fg-muted)] leading-relaxed font-mono">
+              Ask Vladmir to deploy a new lab. Each lab costs{" "}
+              <span className="text-[var(--accent)]">2</span> capacity and houses 2+ specialized agents.
             </div>
           )}
         </div>
@@ -139,43 +177,42 @@ export default function WorldHUD({ worldId, worldName, size }: HUDProps) {
 
       {/* Bottom panel — selected details + log */}
       <div className="absolute bottom-4 left-4 right-4 z-10 flex gap-3">
-        <div className="flex-1 bg-[var(--bg-elev)]/95 backdrop-blur border border-[var(--border)] p-5 min-h-[140px]">
+        <div className="flex-1 bg-[var(--bg-elev)]/95 backdrop-blur border border-[var(--border)] p-5 min-h-[150px] relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[var(--accent-dim)] to-transparent opacity-60" />
           {selectedAgent ? (
             <TaskPanel worldId={worldId} worldName={worldName} agent={selectedAgent} />
-          ) : selectedCity ? (
-            <CityDetail city={selectedCity} />
+          ) : selectedLab ? (
+            <LabDetail lab={selectedLab} />
           ) : (
-            <div className="text-[var(--fg-muted)] text-sm">
-              <div className="text-[10px] tracking-[0.3em] uppercase text-[var(--fg-dim)] mb-2">
-                your realm
-              </div>
-              <p className="font-display text-2xl text-[var(--fg)] mb-2">{worldName}</p>
-              <p className="leading-relaxed">
-                Click a citizen to select them, then click the ground to move. Click a lab to inspect. Your Builder is ready — more actions arriving next.
-              </p>
-            </div>
+            <EmptyDetail worldName={worldName} workspaceRoot={workspaceRoot} targetVps={targetVps} />
           )}
         </div>
 
-        <div className="w-80 bg-[var(--bg-elev)]/95 backdrop-blur border border-[var(--border)] p-4 min-h-[140px] max-h-[240px] overflow-y-auto">
-          <div className="text-[10px] tracking-[0.3em] uppercase text-[var(--fg-dim)] mb-3">
-            Chronicle
+        <div className="w-80 bg-[var(--bg-elev)]/95 backdrop-blur border border-[var(--border)] p-4 min-h-[150px] max-h-[240px] overflow-y-auto">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-[10px] tracking-[0.3em] uppercase text-[var(--fg-dim)] font-mono">
+              event log
+            </div>
+            <span className="chip">
+              <span className="chip-dot" />
+              live
+            </span>
           </div>
-          <div className="space-y-2 text-xs">
-            {logs.slice(0, 6).map((l, i) => (
-              <div key={i} className="leading-relaxed">
+          <div className="space-y-2 text-[11px] font-mono leading-relaxed">
+            {events.slice(0, 8).map((l, i) => (
+              <div key={i} className="flex gap-2">
                 <span
-                  className={`${
+                  className={`flex-shrink-0 ${
                     l.kind === "good"
-                      ? "text-[var(--success)]"
+                      ? "text-[var(--accent)]"
                       : l.kind === "warn"
                         ? "text-[var(--danger)]"
-                        : "text-[var(--fg-muted)]"
+                        : "text-[var(--fg-dim)]"
                   }`}
                 >
-                  ◆
-                </span>{" "}
-                <span className="text-[var(--fg)]">{l.msg}</span>
+                  ›
+                </span>
+                <span className="text-[var(--fg)] break-words">{l.msg}</span>
               </div>
             ))}
           </div>
@@ -185,55 +222,100 @@ export default function WorldHUD({ worldId, worldName, size }: HUDProps) {
   );
 }
 
+function CapacityWidget({
+  capacity,
+}: {
+  capacity: ReturnType<typeof computeCapacity>;
+}) {
+  return (
+    <div className="flex flex-col items-end min-w-[140px]">
+      <div className="flex items-center gap-2">
+        <span className="text-[9px] tracking-[0.25em] uppercase text-[var(--fg-dim)] font-mono">
+          capacity
+        </span>
+        <span className="font-mono text-sm text-[var(--fg)] tabular-nums">
+          <span className="text-[var(--accent)]">{capacity.used}</span>
+          <span className="text-[var(--fg-dim)]">/{capacity.total}</span>
+        </span>
+      </div>
+      <div className="w-32 mt-1 capacity-bar">
+        <div
+          className="capacity-bar-fill"
+          style={{ width: `${capacity.pct * 100}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function Resource({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="flex flex-col items-end">
-      <span className="text-[9px] tracking-[0.25em] uppercase text-[var(--fg-dim)]">{label}</span>
+      <span className="text-[9px] tracking-[0.25em] uppercase text-[var(--fg-dim)] font-mono">
+        {label}
+      </span>
       <span className="font-mono text-sm text-[var(--fg)] tabular-nums">{value}</span>
     </div>
   );
 }
 
-function AgentDetail({ agent }: { agent: ReturnType<typeof useWorld.getState>["agents"][number] }) {
+function EmptyDetail({
+  worldName,
+  workspaceRoot,
+  targetVps,
+}: {
+  worldName: string;
+  workspaceRoot: string;
+  targetVps: string;
+}) {
   return (
-    <>
-      <div className="flex items-center justify-between mb-4">
+    <div className="text-sm">
+      <div className="text-[10px] tracking-[0.3em] uppercase text-[var(--fg-dim)] font-mono mb-2">
+        world context
+      </div>
+      <p className="font-display text-3xl text-[var(--fg)] mb-3">{worldName}</p>
+      <div className="grid grid-cols-3 gap-6 text-[11px] font-mono">
         <div>
-          <div className="text-[10px] tracking-[0.3em] uppercase text-[var(--fg-dim)] mb-1">citizen</div>
-          <div className="font-display text-3xl">{agent.name}</div>
+          <div className="text-[var(--fg-dim)] tracking-[0.15em] uppercase mb-1">target</div>
+          <div className="text-[var(--fg)]">{targetVps}</div>
         </div>
-        <span className="chip">
-          <span className="chip-dot" />
-          {agent.status}
-        </span>
+        <div>
+          <div className="text-[var(--fg-dim)] tracking-[0.15em] uppercase mb-1">workspace</div>
+          <div className="text-[var(--fg)] break-all">{workspaceRoot}</div>
+        </div>
+        <div>
+          <div className="text-[var(--fg-dim)] tracking-[0.15em] uppercase mb-1">state</div>
+          <div className="text-[var(--accent)]">operational</div>
+        </div>
       </div>
-      <div className="grid grid-cols-4 gap-4 text-sm">
-        <Mini label="role" value={agent.kind} />
-        <Mini label="level" value={String(agent.level)} />
-        <Mini label="xp" value={String(agent.xp)} />
-        <Mini label="artifacts" value={String(agent.artifacts)} />
-      </div>
-      <p className="mt-4 text-xs text-[var(--fg-muted)] leading-relaxed">
-        Click any tile on the map to send this citizen there. Task assignment arrives with the first lab.
+      <p className="mt-4 text-[12px] text-[var(--fg-muted)] leading-relaxed max-w-xl">
+        Select Vladmir to deploy labs or spawn specialized agents. Click an empty tile to move him. Right-click any lab to inspect its pipeline.
       </p>
-    </>
+    </div>
   );
 }
 
-function CityDetail({ city }: { city: ReturnType<typeof useWorld.getState>["cities"][number] }) {
+function LabDetail({ lab }: { lab: ReturnType<typeof useWorld.getState>["labs"][number] }) {
+  const bp = LAB_BLUEPRINTS[lab.kind];
   return (
     <>
       <div className="flex items-center justify-between mb-4">
         <div>
-          <div className="text-[10px] tracking-[0.3em] uppercase text-[var(--fg-dim)] mb-1">lab</div>
-          <div className="font-display text-3xl">{city.name}</div>
+          <div className="text-[10px] tracking-[0.3em] uppercase text-[var(--fg-dim)] font-mono mb-1">
+            lab · {lab.kind}
+          </div>
+          <div className="font-display text-3xl">{lab.name}</div>
         </div>
-        <span className="chip">{city.kind.replace("-", " ")}</span>
+        <span className="badge badge-accent">L{lab.level}</span>
       </div>
-      <div className="grid grid-cols-3 gap-4 text-sm">
-        <Mini label="level" value={String(city.level)} />
-        <Mini label="status" value={city.underConstruction ? "building" : "ready"} />
-        <Mini label="position" value={`${city.position[0]}, ${city.position[1]}`} />
+      <p className="text-[13px] text-[var(--fg-muted)] leading-relaxed max-w-2xl mb-4">
+        {bp.purpose}
+      </p>
+      <div className="grid grid-cols-4 gap-6 text-[11px] font-mono">
+        <Mini label="status" value={lab.underConstruction ? "building" : "ready"} />
+        <Mini label="capacity" value={`${bp.capacityCost}`} />
+        <Mini label="staff" value={`${lab.assignedAgentIds.length}`} />
+        <Mini label="position" value={`${lab.position[0]}, ${lab.position[1]}`} />
       </div>
     </>
   );
@@ -242,8 +324,8 @@ function CityDetail({ city }: { city: ReturnType<typeof useWorld.getState>["citi
 function Mini({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="text-[9px] tracking-[0.25em] uppercase text-[var(--fg-dim)] mb-0.5">{label}</div>
-      <div className="text-[var(--fg)] capitalize">{value}</div>
+      <div className="text-[var(--fg-dim)] tracking-[0.15em] uppercase mb-1">{label}</div>
+      <div className="text-[var(--fg)]">{value}</div>
     </div>
   );
 }

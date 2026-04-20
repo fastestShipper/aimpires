@@ -1,28 +1,29 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Cormorant_Garamond } from "next/font/google";
+import { Inter, JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
-const display = Cormorant_Garamond({
-  variable: "--font-display",
+const mono = JetBrains_Mono({
+  variable: "--font-mono",
   subsets: ["latin"],
   weight: ["400", "500", "600"],
-  style: ["normal", "italic"],
+});
+
+const display = Space_Grotesk({
+  variable: "--font-display",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
 });
 
 export const metadata: Metadata = {
   title: "Age of AI-mpires",
   description:
-    "Forge civilizations of autonomous AI agents. Each world is a living server — recruit citizens, build labs, and watch your empire produce real work.",
+    "A real VPS, rendered as a world. Deploy autonomous AI agents, build labs, produce actual work.",
 };
 
 export default function RootLayout({
@@ -33,7 +34,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${display.variable} h-full antialiased`}
+      className={`${inter.variable} ${mono.variable} ${display.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>
     </html>

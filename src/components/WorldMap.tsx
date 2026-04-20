@@ -4,62 +4,83 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Html } from "@react-three/drei";
 import { useEffect, useMemo, useRef, Suspense } from "react";
 import * as THREE from "three";
-import { useWorld, type Agent, type City } from "@/lib/store";
+import { useWorld, type Agent, type Lab } from "@/lib/store";
+import { AGENT_PROFILES, LAB_BLUEPRINTS } from "@/lib/agents";
 import { WORLD_TIERS, type WorldSize } from "@/lib/worlds";
+import { buildGrid, findPath } from "@/lib/pathfinding";
 
-const TILE_SIZE = 1;
+const ACCENT = "#5ee3d7";
+const ACCENT_SOFT = "#2a6b66";
+const SIGNAL = "#c4a6ff";
+const WARM = "#f0d098";
+const AMBER = "#f0a35a";
 
-function Terrain({ size }: { size: WorldSize }) {
-  const tier = WORLD_TIERS[size];
-  const radius = Math.ceil(Math.sqrt(tier.mapTiles / Math.PI));
+const TILE = 1;
 
-  const tiles = useMemo(() => {
-    const out: Array<{ x: number; z: number; h: number; kind: string }> = [];
+interface TerrainTile {
+  x: number;
+  z: number;
+  h: number;
+  kind: "plate" | "accent" | "void" | "edge";
+}
+
+function useTerrain(size: WorldSize): { tiles: TerrainTile[]; radius: number; voidTiles: Array<[number, number]> } {
+  return useMemo(() => {
+    const tier = WORLD_TIERS[size];
+    const radius = Math.max(4, Math.ceil(Math.sqrt(tier.mapTiles / Math.PI)));
+    const out: TerrainTile[] = [];
+    const voidTiles: Array<[number, number]> = [];
+
     for (let x = -radius; x <= radius; x++) {
       for (let z = -radius; z <= radius; z++) {
         const d = Math.sqrt(x * x + z * z);
         if (d > radius) continue;
         const n =
-          Math.sin(x * 0.6) * 0.25 +
-          Math.cos(z * 0.7) * 0.25 +
-          Math.sin((x + z) * 0.35) * 0.15;
-        const h = Math.max(0.12, 0.2 + n * 0.35);
-        const kind =
-          d > radius * 0.92
-            ? "water"
-            : d > radius * 0.82
-              ? "sand"
-              : n < -0.25
-                ? "water"
-                : n > 0.25
-                  ? "forest"
-                  : "grass";
+          Math.sin(x * 0.55) * 0.3 +
+          Math.cos(z * 0.65) * 0.3 +
+          Math.sin((x + z) * 0.4) * 0.2;
+        const edge = d > radius * 0.92;
+        const voidSpot = !edge && n < -0.35;
+        const accent = !edge && !voidSpot && Math.abs(x) % 4 === 0 && Math.abs(z) % 4 === 0;
+        const kind = edge ? "edge" : voidSpot ? "void" : accent ? "accent" : "plate";
+        const h = kind === "void" ? 0.05 : kind === "edge" ? 0.08 : 0.14;
         out.push({ x, z, h, kind });
+        if (voidSpot) voidTiles.push([x, z]);
       }
     }
-    return out;
-  }, [radius]);
+    return { tiles: out, radius, voidTiles };
+  }, [size]);
+}
 
+function Terrain({ tiles }: { tiles: TerrainTile[] }) {
   return (
     <group>
       {tiles.map((t, i) => {
         const color =
-          t.kind === "water"
-            ? "#1a2a3a"
-            : t.kind === "sand"
-              ? "#8a7a4f"
-              : t.kind === "forest"
-                ? "#2d4a22"
-                : "#486a35";
-        const height = t.kind === "water" ? 0.1 : t.h;
+          t.kind === "void"
+            ? "#070a10"
+            : t.kind === "edge"
+              ? "#0d1119"
+              : t.kind === "accent"
+                ? "#1a2230"
+                : "#11141f";
         return (
-          <group key={i} position={[t.x * TILE_SIZE, 0, t.z * TILE_SIZE]}>
-            <mesh position={[0, height / 2, 0]} castShadow receiveShadow>
-              <boxGeometry args={[TILE_SIZE * 0.98, height, TILE_SIZE * 0.98]} />
-              <meshStandardMaterial color={color} roughness={0.95} flatShading />
+          <group key={i} position={[t.x * TILE, 0, t.z * TILE]}>
+            <mesh position={[0, t.h / 2, 0]} receiveShadow>
+              <boxGeometry args={[TILE * 0.96, t.h, TILE * 0.96]} />
+              <meshStandardMaterial color={color} roughness={0.92} flatShading />
             </mesh>
-            {t.kind === "forest" && (
-              <Tree x={0} z={0} y={height} />
+            {t.kind === "accent" && (
+              <mesh position={[0, t.h + 0.002, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                <ringGeometry args={[0.2, 0.28, 4]} />
+                <meshBasicMaterial color={ACCENT} transparent opacity={0.55} side={THREE.DoubleSide} />
+              </mesh>
+            )}
+            {t.kind === "void" && (
+              <mesh position={[0, 0.06, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                <planeGeometry args={[0.88, 0.88]} />
+                <meshBasicMaterial color={SIGNAL} transparent opacity={0.08} />
+              </mesh>
             )}
           </group>
         );
@@ -68,149 +89,221 @@ function Terrain({ size }: { size: WorldSize }) {
   );
 }
 
-function Tree({ x, z, y }: { x: number; z: number; y: number }) {
-  return (
-    <group position={[x, y, z]}>
-      <mesh position={[0, 0.18, 0]} castShadow>
-        <cylinderGeometry args={[0.08, 0.1, 0.35, 6]} />
-        <meshStandardMaterial color="#4a3020" roughness={0.9} />
-      </mesh>
-      <mesh position={[0, 0.55, 0]} castShadow>
-        <coneGeometry args={[0.3, 0.7, 6]} />
-        <meshStandardMaterial color="#2d4a22" roughness={0.95} flatShading />
-      </mesh>
-    </group>
-  );
+interface LabMeshProps {
+  lab: Lab;
+  selected: boolean;
+  onSelect: () => void;
 }
 
-function CityMesh({ city, onSelect, selected }: { city: City; onSelect: () => void; selected: boolean }) {
-  const progress = city.constructionProgress;
-  const built = !city.underConstruction;
-  const palettes: Record<string, { wall: string; roof: string; accent: string }> = {
-    "town-hall": { wall: "#c9b28a", roof: "#7a2418", accent: "#d4a857" },
-    "code-forge": { wall: "#2a3440", roof: "#1a2028", accent: "#5aa9e6" },
-    "design-atelier": { wall: "#d9c4e3", roof: "#7a3e8a", accent: "#e8b76a" },
-    "research-library": { wall: "#b8a68a", roof: "#3a4a2a", accent: "#c8a24a" },
-    "trading-post": { wall: "#c89a5a", roof: "#4a2a18", accent: "#e8c26a" },
-    "scriptorium": { wall: "#e0d4b8", roof: "#5a4028", accent: "#d4a857" },
-  };
-  const palette = palettes[city.kind];
+function LabMesh({ lab, selected, onSelect }: LabMeshProps) {
+  const bp = LAB_BLUEPRINTS[lab.kind];
+  const progress = lab.constructionProgress;
+  const built = !lab.underConstruction;
+
+  const palette = PALETTES[bp.accent];
 
   return (
-    <group position={[city.position[0], 0, city.position[1]]} onClick={(e) => { e.stopPropagation(); onSelect(); }}>
-      {/* Foundation */}
-      <mesh position={[0, 0.05, 0]} receiveShadow>
-        <boxGeometry args={[2.4, 0.1, 2.4]} />
-        <meshStandardMaterial color="#3a3a3a" roughness={0.95} />
+    <group
+      position={[lab.position[0], 0, lab.position[1]]}
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect();
+      }}
+    >
+      {/* Base pad */}
+      <mesh position={[0, 0.18, 0]} receiveShadow castShadow>
+        <boxGeometry args={[2.3, 0.15, 2.3]} />
+        <meshStandardMaterial color="#131827" roughness={0.85} metalness={0.3} />
+      </mesh>
+      {/* Pad accent outline */}
+      <mesh position={[0, 0.26, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[1.05, 1.12, 4]} />
+        <meshBasicMaterial color={palette.accent} transparent opacity={selected ? 0.95 : 0.55} side={THREE.DoubleSide} />
       </mesh>
 
-      {/* Main building (scales with progress) */}
-      <group scale={[1, Math.max(0.05, progress), 1]}>
-        <mesh position={[0, 0.5, 0]} castShadow receiveShadow>
-          <boxGeometry args={[1.6, 1.0, 1.6]} />
-          <meshStandardMaterial color={palette.wall} roughness={0.85} flatShading />
+      {/* Core structure (scales with progress) */}
+      <group scale={[1, Math.max(0.06, progress), 1]}>
+        {/* Primary block */}
+        <mesh position={[0, 0.7, 0]} castShadow receiveShadow>
+          <boxGeometry args={[1.5, 0.9, 1.5]} />
+          <meshStandardMaterial
+            color={palette.body}
+            roughness={0.55}
+            metalness={0.45}
+            emissive={palette.accent}
+            emissiveIntensity={built ? 0.14 : 0.4}
+          />
         </mesh>
-        {/* Roof */}
+        {/* Secondary stepped block */}
         {built && (
-          <mesh position={[0, 1.15, 0]} castShadow>
-            <coneGeometry args={[1.25, 0.6, 4]} />
-            <meshStandardMaterial color={palette.roof} roughness={0.85} flatShading />
+          <mesh position={[0, 1.35, 0]} castShadow receiveShadow>
+            <boxGeometry args={[1.1, 0.5, 1.1]} />
+            <meshStandardMaterial color={palette.bodyMid} roughness={0.5} metalness={0.5} />
           </mesh>
         )}
-        {/* Banner pole */}
+        {/* Top spire for core/town hall */}
+        {built && lab.kind === "core" && (
+          <>
+            <mesh position={[0, 1.95, 0]} castShadow>
+              <boxGeometry args={[0.4, 1.0, 0.4]} />
+              <meshStandardMaterial
+                color="#0f1320"
+                roughness={0.45}
+                metalness={0.55}
+                emissive={palette.accent}
+                emissiveIntensity={0.4}
+              />
+            </mesh>
+            <mesh position={[0, 2.55, 0]} rotation={[Math.PI / 2, 0, 0]}>
+              <torusGeometry args={[0.32, 0.02, 6, 32]} />
+              <meshBasicMaterial color={palette.accent} toneMapped={false} />
+            </mesh>
+            <mesh position={[0, 2.6, 0]}>
+              <sphereGeometry args={[0.06, 12, 12]} />
+              <meshStandardMaterial color={palette.accent} emissive={palette.accent} emissiveIntensity={2.5} toneMapped={false} />
+            </mesh>
+          </>
+        )}
+        {/* Edge stripe lights on primary */}
         {built && (
           <>
-            <mesh position={[0, 1.8, 0]} castShadow>
-              <cylinderGeometry args={[0.03, 0.03, 0.6, 6]} />
-              <meshStandardMaterial color="#8a6a3a" />
+            <mesh position={[0, 0.7, 0.76]}>
+              <boxGeometry args={[1.2, 0.08, 0.02]} />
+              <meshBasicMaterial color={palette.accent} transparent opacity={0.9} toneMapped={false} />
             </mesh>
-            <mesh position={[0.2, 1.85, 0]} castShadow>
-              <boxGeometry args={[0.25, 0.2, 0.02]} />
-              <meshStandardMaterial color={palette.accent} emissive={palette.accent} emissiveIntensity={0.3} />
+            <mesh position={[0, 0.7, -0.76]}>
+              <boxGeometry args={[1.2, 0.08, 0.02]} />
+              <meshBasicMaterial color={palette.accent} transparent opacity={0.9} toneMapped={false} />
             </mesh>
           </>
         )}
       </group>
 
-      {/* Selection ring */}
+      {/* Selection ring on ground */}
       {selected && (
-        <mesh position={[0, 0.11, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[1.4, 1.55, 32]} />
-          <meshBasicMaterial color="#d4a857" transparent opacity={0.8} side={THREE.DoubleSide} />
+        <mesh position={[0, 0.19, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[1.25, 1.42, 40]} />
+          <meshBasicMaterial color={palette.accent} transparent opacity={0.9} side={THREE.DoubleSide} />
         </mesh>
       )}
 
       {/* Label */}
-      <Html position={[0, 2.4, 0]} center distanceFactor={8} style={{ pointerEvents: "none" }}>
-        <div className="text-[10px] tracking-[0.25em] uppercase text-[#d4a857] font-light whitespace-nowrap bg-[#08090c]/80 px-2 py-1 border border-[#d4a857]/30">
-          {city.name}
+      <Html position={[0, 2.9, 0]} center distanceFactor={9} style={{ pointerEvents: "none" }}>
+        <div className="flex items-center gap-1.5 whitespace-nowrap bg-[#08090e]/85 border border-[rgba(94,227,215,0.4)] px-2 py-[3px] font-mono">
+          <span className="text-[var(--accent)] text-[10px]">{bp.glyph}</span>
+          <span className="text-[10px] tracking-[0.2em] uppercase text-[var(--fg)]">{lab.name}</span>
         </div>
       </Html>
     </group>
   );
 }
 
-function AgentMesh({ agent, onSelect, selected }: { agent: Agent; onSelect: () => void; selected: boolean }) {
+interface AgentMeshProps {
+  agent: Agent;
+  selected: boolean;
+  onSelect: () => void;
+}
+
+function AgentMesh({ agent, selected, onSelect }: AgentMeshProps) {
   const ref = useRef<THREE.Group>(null);
   const bobRef = useRef(0);
 
   useFrame((_, dt) => {
     bobRef.current += dt;
     if (ref.current) {
-      ref.current.position.y = agent.status === "walking" ? 0.35 + Math.abs(Math.sin(bobRef.current * 8)) * 0.06 : 0.35;
+      const walking = agent.status === "walking";
+      ref.current.position.y = walking
+        ? 0.45 + Math.abs(Math.sin(bobRef.current * 9)) * 0.08
+        : 0.45;
     }
   });
 
-  const colors: Record<string, { body: string; hat: string }> = {
-    builder: { body: "#8a6a3a", hat: "#c89a5a" },
-    coder: { body: "#2a3440", hat: "#5aa9e6" },
-    designer: { body: "#7a3e8a", hat: "#d9c4e3" },
-    researcher: { body: "#3a4a2a", hat: "#c8a24a" },
-    trader: { body: "#4a2a18", hat: "#e8c26a" },
-    scribe: { body: "#5a4028", hat: "#e0d4b8" },
-  };
-  const c = colors[agent.kind];
+  const profile = AGENT_PROFILES[agent.kind];
+  const palette = PALETTES[profile.accent];
 
   return (
     <group
       ref={ref}
-      position={[agent.position[0], 0.35, agent.position[1]]}
-      onClick={(e) => { e.stopPropagation(); onSelect(); }}
+      position={[agent.position[0], 0.45, agent.position[1]]}
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect();
+      }}
     >
-      {/* body */}
+      {/* Lower "mech" block */}
       <mesh castShadow>
-        <capsuleGeometry args={[0.12, 0.25, 4, 8]} />
-        <meshStandardMaterial color={c.body} roughness={0.8} />
+        <boxGeometry args={[0.24, 0.32, 0.24]} />
+        <meshStandardMaterial color={palette.body} roughness={0.55} metalness={0.5} />
       </mesh>
-      {/* head */}
-      <mesh position={[0, 0.32, 0]} castShadow>
-        <sphereGeometry args={[0.11, 12, 12]} />
-        <meshStandardMaterial color="#e8c8a0" roughness={0.7} />
+      {/* Upper core (slightly smaller) */}
+      <mesh position={[0, 0.28, 0]} castShadow>
+        <boxGeometry args={[0.18, 0.18, 0.18]} />
+        <meshStandardMaterial
+          color="#0f1320"
+          roughness={0.45}
+          metalness={0.55}
+          emissive={palette.accent}
+          emissiveIntensity={0.6}
+        />
       </mesh>
-      {/* hat */}
-      <mesh position={[0, 0.44, 0]} castShadow>
-        <coneGeometry args={[0.12, 0.18, 6]} />
-        <meshStandardMaterial color={c.hat} roughness={0.75} />
+      {/* Signal dot on top */}
+      <mesh position={[0, 0.42, 0]}>
+        <sphereGeometry args={[0.05, 12, 12]} />
+        <meshStandardMaterial color={palette.accent} emissive={palette.accent} emissiveIntensity={2.2} toneMapped={false} />
       </mesh>
+      {/* Side stripe */}
+      <mesh position={[0, 0, 0.13]}>
+        <boxGeometry args={[0.18, 0.05, 0.01]} />
+        <meshBasicMaterial color={palette.accent} transparent opacity={0.9} toneMapped={false} />
+      </mesh>
+
       {selected && (
-        <mesh position={[0, -0.33, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[0.22, 0.28, 24]} />
-          <meshBasicMaterial color="#d4a857" transparent opacity={0.9} side={THREE.DoubleSide} />
+        <mesh position={[0, -0.43, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[0.25, 0.33, 28]} />
+          <meshBasicMaterial color={ACCENT} transparent opacity={0.9} side={THREE.DoubleSide} />
         </mesh>
       )}
-      <Html position={[0, 0.75, 0]} center distanceFactor={6} style={{ pointerEvents: "none" }}>
-        <div className="text-[9px] tracking-[0.2em] uppercase text-[#f0ecdf] whitespace-nowrap bg-[#08090c]/70 px-1.5 py-0.5 border border-[#d4a857]/20">
-          {agent.name.split(" ")[0]}
+
+      <Html position={[0, 0.85, 0]} center distanceFactor={7} style={{ pointerEvents: "none" }}>
+        <div className="flex items-center gap-1 whitespace-nowrap bg-[#08090e]/80 border border-[rgba(94,227,215,0.3)] px-1.5 py-[2px] font-mono">
+          <span className="text-[var(--accent)] text-[9px]">{profile.glyph}</span>
+          <span className="text-[9px] tracking-[0.2em] uppercase text-[var(--fg)]">{agent.name}</span>
         </div>
       </Html>
     </group>
   );
 }
 
+/** Visualizes the current A* path of the selected agent. */
+function PathTrail({ agent }: { agent: Agent }) {
+  if (agent.path.length < 1) return null;
+  const points = [
+    new THREE.Vector3(agent.position[0], 0.3, agent.position[1]),
+    ...agent.path.map((p) => new THREE.Vector3(p[0], 0.3, p[1])),
+  ];
+  const geom = new THREE.BufferGeometry().setFromPoints(points);
+  return (
+    <>
+      {/* Waypoint dots */}
+      {agent.path.map((p, i) => (
+        <mesh key={i} position={[p[0], 0.22, p[1]]} rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[0.08, 0.13, 16]} />
+          <meshBasicMaterial color={ACCENT} transparent opacity={0.6} side={THREE.DoubleSide} />
+        </mesh>
+      ))}
+      {/* Line */}
+      <line>
+        <primitive object={geom} attach="geometry" />
+        <lineBasicMaterial color={ACCENT} transparent opacity={0.7} toneMapped={false} />
+      </line>
+    </>
+  );
+}
+
 function CameraRig() {
   const { camera } = useThree();
   useEffect(() => {
-    camera.position.set(10, 11, 10);
+    camera.position.set(12, 13, 12);
     camera.lookAt(0, 0, 0);
   }, [camera]);
   return null;
@@ -219,26 +312,55 @@ function CameraRig() {
 function Ticker() {
   const tick = useWorld((s) => s.tick);
   useFrame((_, dt) => {
-    // ~20 ticks/sec
     if (dt > 0) tick();
   });
   return null;
 }
 
-function GroundClickPlane() {
-  const moveAgent = useWorld((s) => s.moveAgent);
+function GroundClickPlane({
+  gridRadius,
+  blockers,
+}: {
+  gridRadius: number;
+  blockers: Array<[number, number]>;
+}) {
+  const setAgentPath = useWorld((s) => s.setAgentPath);
   const selectedAgentId = useWorld((s) => s.selectedAgentId);
+  const agents = useWorld((s) => s.agents);
   const log = useWorld((s) => s.log);
 
   return (
     <mesh
       rotation={[-Math.PI / 2, 0, 0]}
       position={[0, 0.001, 0]}
-      onClick={(e) => {
+      onClick={async (e) => {
         if (!selectedAgentId) return;
+        const agent = agents.find((a) => a.id === selectedAgentId);
+        if (!agent) return;
         const p = e.point;
-        moveAgent(selectedAgentId, [Math.round(p.x), Math.round(p.z)]);
-        log(`Agent ordered to move to (${Math.round(p.x)}, ${Math.round(p.z)}).`);
+        const tx = Math.round(p.x);
+        const tz = Math.round(p.z);
+        if (Math.sqrt(tx * tx + tz * tz) > gridRadius) {
+          log(`Target outside world bounds.`, "warn");
+          return;
+        }
+        const { grid, offset } = buildGrid(gridRadius, blockers);
+        const path = await findPath({
+          grid,
+          offset,
+          from: [agent.position[0], agent.position[1]],
+          to: [tx, tz],
+        });
+        if (!path || path.length === 0) {
+          log(`No path to (${tx}, ${tz}).`, "warn");
+          return;
+        }
+        const tuples = path.map((p) => [p.x, p.y] as [number, number]);
+        setAgentPath(agent.id, tuples);
+        log(
+          `${agent.name} routed to (${tx}, ${tz}) · ${tuples.length} waypoints.`,
+          "info",
+        );
       }}
     >
       <planeGeometry args={[200, 200]} />
@@ -249,45 +371,55 @@ function GroundClickPlane() {
 
 export default function WorldMap({ size }: { size: WorldSize }) {
   const agents = useWorld((s) => s.agents);
-  const cities = useWorld((s) => s.cities);
+  const labs = useWorld((s) => s.labs);
   const selectedAgentId = useWorld((s) => s.selectedAgentId);
-  const selectedCityId = useWorld((s) => s.selectedCityId);
+  const selectedLabId = useWorld((s) => s.selectedLabId);
   const setSelectedAgent = useWorld((s) => s.setSelectedAgent);
-  const setSelectedCity = useWorld((s) => s.setSelectedCity);
+  const setSelectedLab = useWorld((s) => s.setSelectedLab);
+
+  const { tiles, radius, voidTiles } = useTerrain(size);
+  const labBlockers: Array<[number, number]> = labs.map((l) => [
+    Math.round(l.position[0]),
+    Math.round(l.position[1]),
+  ]);
+  const blockers = [...voidTiles, ...labBlockers];
+
+  const selectedAgent = agents.find((a) => a.id === selectedAgentId);
 
   return (
     <Canvas
-      camera={{ position: [10, 11, 10], fov: 35 }}
+      camera={{ position: [12, 13, 12], fov: 35 }}
       shadows
       dpr={[1, 2]}
       gl={{ antialias: true }}
     >
-      <color attach="background" args={["#08090c"]} />
+      <color attach="background" args={["#08090e"]} />
       <Suspense fallback={null}>
-        <fog attach="fog" args={["#08090c", 15, 45]} />
-        <ambientLight intensity={0.4} />
+        <fog attach="fog" args={["#08090e", 18, 55]} />
+        <ambientLight intensity={0.42} />
         <directionalLight
-          position={[10, 15, 6]}
-          intensity={1.8}
-          color="#fff0d0"
+          position={[12, 18, 8]}
+          intensity={1.4}
+          color="#c0d4ff"
           castShadow
           shadow-mapSize={[2048, 2048]}
-          shadow-camera-left={-20}
-          shadow-camera-right={20}
-          shadow-camera-top={20}
-          shadow-camera-bottom={-20}
+          shadow-camera-left={-24}
+          shadow-camera-right={24}
+          shadow-camera-top={24}
+          shadow-camera-bottom={-24}
         />
-        <directionalLight position={[-8, 5, -8]} intensity={0.4} color="#6a8abf" />
+        <directionalLight position={[-10, 6, -10]} intensity={0.35} color={ACCENT} />
+        <pointLight position={[0, 5, 0]} intensity={0.8} color={ACCENT} distance={16} />
 
         <CameraRig />
-        <Terrain size={size} />
+        <Terrain tiles={tiles} />
 
-        {cities.map((c) => (
-          <CityMesh
-            key={c.id}
-            city={c}
-            selected={c.id === selectedCityId}
-            onSelect={() => setSelectedCity(c.id)}
+        {labs.map((l) => (
+          <LabMesh
+            key={l.id}
+            lab={l}
+            selected={l.id === selectedLabId}
+            onSelect={() => setSelectedLab(l.id)}
           />
         ))}
 
@@ -300,7 +432,9 @@ export default function WorldMap({ size }: { size: WorldSize }) {
           />
         ))}
 
-        <GroundClickPlane />
+        {selectedAgent && <PathTrail agent={selectedAgent} />}
+
+        <GroundClickPlane gridRadius={radius} blockers={blockers} />
         <Ticker />
 
         <OrbitControls
@@ -308,7 +442,7 @@ export default function WorldMap({ size }: { size: WorldSize }) {
           enableZoom
           enableRotate
           minDistance={6}
-          maxDistance={28}
+          maxDistance={32}
           maxPolarAngle={Math.PI / 2.2}
           target={[0, 0, 0]}
         />
@@ -316,3 +450,13 @@ export default function WorldMap({ size }: { size: WorldSize }) {
     </Canvas>
   );
 }
+
+const PALETTES: Record<
+  "cyan" | "violet" | "warm" | "amber",
+  { body: string; bodyMid: string; accent: string }
+> = {
+  cyan: { body: "#1a2235", bodyMid: "#141a2a", accent: ACCENT },
+  violet: { body: "#211a36", bodyMid: "#1a1428", accent: SIGNAL },
+  warm: { body: "#302415", bodyMid: "#241c10", accent: WARM },
+  amber: { body: "#301c10", bodyMid: "#221408", accent: AMBER },
+};
