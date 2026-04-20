@@ -41,6 +41,9 @@ yarn-error.log*
 /.tmp/
 *.deploy.sh
 
+# stray downloads / zips at repo root
+/*.zip
+
 # Kenney source dirs (we only ship the flattened GLBs in public/models/{buildings,nature,chars})
 /public/models/kenney_city/
 /public/models/kenney_chars/
