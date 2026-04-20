@@ -56,12 +56,13 @@ export default function KenneyBuilding({
       m.receiveShadow = true;
       const mat = m.material as THREE.MeshStandardMaterial;
       if (!mat) return;
-      // Soft emissive tint for nighttime readability
+      // Subtle emissive tint only — avoid bloom blowout
       if (tint && "emissive" in mat) {
         mat.emissive = new THREE.Color(tint);
-        mat.emissiveIntensity = 0.18;
+        mat.emissiveIntensity = 0.04;
       }
-      mat.roughness = Math.min(0.85, (mat.roughness ?? 0.8) + 0.05);
+      mat.roughness = Math.min(0.9, (mat.roughness ?? 0.75) + 0.1);
+      mat.metalness = Math.min(0.3, (mat.metalness ?? 0.2) * 0.7);
     });
     return c;
   }, [scene, tint]);

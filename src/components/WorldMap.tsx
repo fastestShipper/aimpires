@@ -11,6 +11,17 @@ import { AGENT_PROFILES, LAB_BLUEPRINTS } from "@/lib/agents";
 import { WORLD_TIERS, type WorldSize } from "@/lib/worlds";
 import { buildGrid, findPath } from "@/lib/pathfinding";
 import KenneyBuilding, { BUILDINGS } from "@/components/KenneyBuilding";
+import {
+  Tree as KTree,
+  Rock as KRock,
+  Character as KChar,
+  TREES,
+  ROCKS,
+  CHARACTERS,
+  type TreeKey,
+  type RockKey,
+  type CharKey,
+} from "@/components/KenneyAssets";
 
 const ACCENT = "#5ee3d7";
 const SIGNAL = "#c4a6ff";
@@ -216,34 +227,22 @@ function AccentTiles({ tiles }: { tiles: TerrainTile[] }) {
 }
 
 function Trees({ positions }: { positions: Array<[number, number, number]> }) {
-  // Low-poly crystal trees with subtle emission + varied hues
   return (
     <group>
       {positions.map((p, i) => {
         const jx = ((i * 9301 + 49297) % 233280) / 233280 - 0.5;
         const jz = ((i * 7919 + 311) % 233280) / 233280 - 0.5;
-        const scale = 0.65 + (((i * 131) % 100) / 100) * 0.5;
-        const hueShift = ((i * 17) % 100) / 100;
-        const canopy = new THREE.Color("#3a6a4a").offsetHSL(hueShift * 0.08 - 0.02, 0.08, hueShift * 0.1);
-        const emit = new THREE.Color(ACCENT).offsetHSL(hueShift * 0.15, 0, 0);
+        const scale = 0.38 + (((i * 131) % 100) / 100) * 0.24;
+        const variant: TreeKey = TREES[i % TREES.length];
+        const rot = ((i * 47) % 360) * (Math.PI / 180);
         return (
-          <group key={i} position={[p[0] + jx * 0.35, p[1], p[2] + jz * 0.35]}>
-            <mesh position={[0, 0.5 * scale, 0]} castShadow>
-              <coneGeometry args={[0.32 * scale, 1.0 * scale, 4]} />
-              <meshStandardMaterial
-                color={canopy}
-                emissive={emit}
-                emissiveIntensity={0.28}
-                flatShading
-                roughness={0.75}
-                metalness={0.1}
-              />
-            </mesh>
-            <mesh position={[0, 0.1, 0]} castShadow>
-              <cylinderGeometry args={[0.07, 0.09, 0.2, 5]} />
-              <meshStandardMaterial color="#3a2a1a" roughness={0.95} />
-            </mesh>
-          </group>
+          <KTree
+            key={i}
+            variant={variant}
+            position={[p[0] + jx * 0.4, p[1], p[2] + jz * 0.4]}
+            rotation={rot}
+            scale={scale}
+          />
         );
       })}
     </group>
@@ -251,39 +250,20 @@ function Trees({ positions }: { positions: Array<[number, number, number]> }) {
 }
 
 function Hills({ positions }: { positions: Array<[number, number, number]> }) {
-  // Warm rocky outcrops with lit crystal tops
   return (
     <group>
       {positions.map((p, i) => {
-        const s = 0.85 + (((i * 173) % 100) / 100) * 0.6;
-        const tint = new THREE.Color(BIOME_COLORS.hillLight).offsetHSL(((i * 13) % 100) / 2000, 0.1, 0);
+        const variant: RockKey = ROCKS[i % ROCKS.length];
+        const rot = ((i * 59) % 360) * (Math.PI / 180);
+        const scale = 0.55 + (((i * 173) % 100) / 100) * 0.45;
         return (
-          <group key={i} position={[p[0], 0, p[2]]}>
-            <mesh position={[0, (p[1] + 0.25) / 2, 0]} castShadow receiveShadow>
-              <boxGeometry args={[0.95, p[1] + 0.25, 0.95]} />
-              <meshStandardMaterial color={BIOME_COLORS.hill} roughness={0.92} flatShading />
-            </mesh>
-            <mesh
-              position={[0.02, p[1] + 0.4, 0.02]}
-              rotation={[0, Math.PI / 4, 0]}
-              castShadow
-            >
-              <coneGeometry args={[0.48 * s, 0.6 * s, 4]} />
-              <meshStandardMaterial color={tint} flatShading roughness={0.75} />
-            </mesh>
-            {/* Occasional crystal on top */}
-            {i % 3 === 0 && (
-              <mesh position={[0, p[1] + 0.85, 0]} rotation={[0, Math.PI / 4, 0]}>
-                <octahedronGeometry args={[0.15 * s, 0]} />
-                <meshStandardMaterial
-                  color={WARM}
-                  emissive={WARM}
-                  emissiveIntensity={0.8}
-                  toneMapped={false}
-                />
-              </mesh>
-            )}
-          </group>
+          <KRock
+            key={i}
+            variant={variant}
+            position={[p[0], 0.1, p[2]]}
+            rotation={rot}
+            scale={scale}
+          />
         );
       })}
     </group>
@@ -452,6 +432,14 @@ function LabCluster({ lab, selected, onSelect }: LabMeshProps) {
   );
 }
 
+// Char assignment per agent kind — varied models from the Kenney blocky pack.
+const AGENT_CHAR: Record<string, CharKey> = {
+  vladmir: "character-a",
+  coder: "character-f",
+  researcher: "character-j",
+  designer: "character-n",
+};
+
 function AgentMesh({
   agent,
   selected,
@@ -463,63 +451,57 @@ function AgentMesh({
 }) {
   const ref = useRef<THREE.Group>(null);
   const bobRef = useRef(0);
+  const facingRef = useRef(0);
 
   useFrame((_, dt) => {
     bobRef.current += dt;
-    if (ref.current) {
-      const walking = agent.status === "walking";
-      ref.current.position.y = walking
-        ? 0.4 + Math.abs(Math.sin(bobRef.current * 9)) * 0.08
-        : 0.4;
+    if (!ref.current) return;
+    const walking = agent.status === "walking";
+    ref.current.position.y = walking
+      ? 0.0 + Math.abs(Math.sin(bobRef.current * 10)) * 0.05
+      : 0.0;
+    // Face the target
+    if (agent.target) {
+      const dx = agent.target[0] - agent.position[0];
+      const dz = agent.target[1] - agent.position[1];
+      if (Math.hypot(dx, dz) > 0.05) {
+        facingRef.current = Math.atan2(dx, dz);
+      }
     }
+    ref.current.rotation.y = facingRef.current;
   });
 
   const profile = AGENT_PROFILES[agent.kind];
   const palette = PALETTES[profile.accent];
+  const charVariant = AGENT_CHAR[agent.kind] ?? "character-a";
 
   return (
     <group
       ref={ref}
-      position={[agent.position[0], 0.4, agent.position[1]]}
+      position={[agent.position[0], 0, agent.position[1]]}
       onClick={(e) => {
         e.stopPropagation();
         onSelect();
       }}
     >
-      <mesh castShadow>
-        <boxGeometry args={[0.28, 0.36, 0.28]} />
-        <meshStandardMaterial color={palette.body} roughness={0.55} metalness={0.5} />
-      </mesh>
-      <mesh position={[0, 0.32, 0]} castShadow>
-        <boxGeometry args={[0.22, 0.22, 0.22]} />
-        <meshStandardMaterial
-          color="#0f1320"
-          roughness={0.45}
-          metalness={0.55}
-          emissive={palette.accent}
-          emissiveIntensity={0.7}
-        />
-      </mesh>
-      <mesh position={[0, 0.48, 0]}>
-        <sphereGeometry args={[0.06, 12, 12]} />
+      <KChar variant={charVariant} position={[0, 0.1, 0]} scale={0.42} tint={palette.accent} />
+      {/* Signal dot above head */}
+      <mesh position={[0, 1.3, 0]}>
+        <sphereGeometry args={[0.09, 12, 12]} />
         <meshStandardMaterial
           color={palette.accent}
           emissive={palette.accent}
-          emissiveIntensity={2.4}
+          emissiveIntensity={3.2}
           toneMapped={false}
         />
       </mesh>
-      <mesh position={[0, 0.02, 0.15]}>
-        <boxGeometry args={[0.2, 0.06, 0.01]} />
-        <meshBasicMaterial color={palette.accent} toneMapped={false} />
-      </mesh>
       {selected && (
-        <mesh position={[0, -0.38, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[0.3, 0.38, 28]} />
+        <mesh position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[0.38, 0.48, 32]} />
           <meshBasicMaterial color={ACCENT} transparent opacity={0.9} side={THREE.DoubleSide} />
         </mesh>
       )}
-      <Html position={[0, 0.95, 0]} center distanceFactor={8} style={{ pointerEvents: "none" }}>
+      <Html position={[0, 1.55, 0]} center distanceFactor={8} style={{ pointerEvents: "none" }}>
         <div className="flex items-center gap-1 whitespace-nowrap bg-[#08090e]/80 border border-[rgba(94,227,215,0.3)] px-1.5 py-[2px] font-mono">
           <span className="text-[var(--accent)] text-[9px]">{profile.glyph}</span>
           <span className="text-[9px] tracking-[0.2em] uppercase text-[var(--fg)]">{agent.name}</span>
@@ -662,11 +644,11 @@ export default function WorldMap({ size }: { size: WorldSize }) {
       dpr={[1, 2]}
       gl={{ antialias: true }}
     >
-      <color attach="background" args={["#0a0e18"]} />
+      <color attach="background" args={["#1a1830"]} />
       <Suspense fallback={null}>
-        <fog attach="fog" args={["#0a1220", 30, 95]} />
-        <Environment preset="night" />
-        <ambientLight intensity={0.25} color="#9aafd0" />
+        <fog attach="fog" args={["#201840", 28, 100]} />
+        <Environment preset="sunset" background={false} />
+        <ambientLight intensity={0.55} color="#d4b8a0" />
         {/* Key light: warm amber "sunset" from one side */}
         <directionalLight
           position={[22, 28, 14]}
@@ -728,14 +710,14 @@ export default function WorldMap({ size }: { size: WorldSize }) {
 
         <EffectComposer multisampling={4}>
           <Bloom
-            intensity={1.2}
-            luminanceThreshold={0.55}
-            luminanceSmoothing={0.55}
+            intensity={0.55}
+            luminanceThreshold={0.85}
+            luminanceSmoothing={0.45}
             mipmapBlur
-            radius={0.85}
+            radius={0.75}
           />
           <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-          <Vignette eskil={false} offset={0.2} darkness={0.65} blendFunction={BlendFunction.NORMAL} />
+          <Vignette eskil={false} offset={0.25} darkness={0.55} blendFunction={BlendFunction.NORMAL} />
         </EffectComposer>
       </Suspense>
     </Canvas>
