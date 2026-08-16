@@ -88,7 +88,7 @@ export const useWorld = create<WorldState>((set) => ({
   id: "",
   name: "",
   size: "medium",
-  targetVps: "187.77.229.244:2222",
+  targetVps: "localhost:2222",
   workspaceRoot: "",
   age: 0,
   agents: [],
@@ -126,8 +126,8 @@ export const useWorld = create<WorldState>((set) => ({
       events: [{ t: Date.now(), msg, kind, sourceId }, ...s.events].slice(0, 60),
     })),
 
-  init: ({ id, name, size, targetVps = "187.77.229.244:2222" }) => {
-    const workspaceRoot = `/root/worlds/${id}`;
+  init: ({ id, name, size, targetVps = "localhost:2222" }) => {
+    const workspaceRoot = `/worlds/${id}`;
     const core: Lab = {
       id: "core",
       kind: "core",
